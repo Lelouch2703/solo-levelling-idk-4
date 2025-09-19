@@ -31,7 +31,8 @@ jobs:
             url="$base/$f"
             outfile="expo-aars/$(basename "$f")"
             echo "Fetching $url"
-            curl -sfSL "$url" -o "$outfile" || { echo "Failed to fetch $url"; exit 1; }
+            # Added -k to bypass the certificate problem
+            curl -sfSLk "$url" -o "$outfile" || { echo "Failed to fetch $url"; exit 1; }
           done
 
       - name: Create package layout
@@ -53,4 +54,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: expo-aars
-          path: expo-aars-package.zip 
+          path: expo-aars-package.zip
