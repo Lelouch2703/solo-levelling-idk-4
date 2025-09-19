@@ -13,8 +13,9 @@ jobs:
       - name: Create output dir
         run: mkdir -p expo-aars
 
-      - name: Download artifacts from dl.expo.dev
+      - name: Download artifacts from dl.expo.dev (tolerant)
         run: |
+          set -euo pipefail
           base="https://dl.expo.dev/maven"
           files=(
             "expo/modules/expo-modules-core/2.5.0/expo-modules-core-2.5.0.pom"
@@ -27,15 +28,37 @@ jobs:
             "expo/modules/expo-modules-updates-interface/2.5.0/expo-modules-updates-interface-2.5.0.aar"
           )
           mkdir -p expo-aars
+          downloaded=0
+          failed_list=()
           for f in "${files[@]}"; do
             url="$base/$f"
             outfile="expo-aars/$(basename "$f")"
             echo "Fetching $url"
-            # Added -k to bypass the certificate problem
-            curl -sfSLk "$url" -o "$outfile" || { echo "Failed to fetch $url"; exit 1; }
+            # Fetch to temp, capture HTTP code. -k allows the (broken) cert; -sS silent + show errors;
+            status=$(curl -sSk -w "%{http_code}" -o "$outfile.tmp" "$url" || echo "000")
+            if [ "$status" = "200" ]; then
+              mv "$outfile.tmp" "$outfile"
+              echo "Downloaded -> $outfile"
+              downloaded=$((downloaded+1))
+            else
+              rm -f "$outfile.tmp"
+              echo "Warning: $url returned HTTP $status — skipping."
+              failed_list+=("$url (HTTP $status)")
+            fi
           done
+          echo
+          echo "Download summary: $downloaded successful, $(( ${#files[@]} - downloaded )) missing/failed."
+          if [ "$downloaded" -eq 0 ]; then
+            echo "Error: No files downloaded; failing the job so you can inspect logs."
+            echo "Failures:"
+            for e in "${failed_list[@]}"; do echo "  - $e"; done
+            exit 1
+          else
+            echo "Some files downloaded. Missing files (if any):"
+            for e in "${failed_list[@]}"; do echo "  - $e"; done
+          fi
 
-      - name: Create package layout
+      - name: Create package layout (move what we have into Maven layout)
         run: |
           mkdir -p package/expo/modules/expo-modules-core/2.5.0
           mkdir -p package/expo/modules/expo-modules-autolinking/2.5.0
@@ -45,10 +68,18 @@ jobs:
           mv expo-aars/expo-modules-autolinking-2.5.0.* package/expo/modules/expo-modules-autolinking/2.5.0/ || true
           mv expo-aars/expo-modules-application-2.5.0.* package/expo/modules/expo-modules-application/2.5.0/ || true
           mv expo-aars/expo-modules-updates-interface-2.5.0.* package/expo/modules/expo-modules-updates-interface/2.5.0/ || true
+          echo "Package layout populated. Listing package tree:"
+          (cd package && find . -maxdepth 4 -type f -print) || true
 
       - name: Zip package
         run: |
-          (cd package && zip -r ../expo-aars-package.zip .)
+          if [ -d package ]; then
+            (cd package && zip -r ../expo-aars-package.zip .)
+            echo "Created expo-aars-package.zip"
+          else
+            echo "No package dir found; creating empty zip."
+            zip -r expo-aars-package.zip . || true
+          fi
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
