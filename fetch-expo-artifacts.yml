@@ -1,0 +1,56 @@
+﻿name: fetch-expo-aars
+
+on:
+  workflow_dispatch:
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Create output dir
+        run: mkdir -p expo-aars
+
+      - name: Download artifacts from dl.expo.dev
+        run: |
+          base="https://dl.expo.dev/maven"
+          files=(
+            "expo/modules/expo-modules-core/2.5.0/expo-modules-core-2.5.0.pom"
+            "expo/modules/expo-modules-core/2.5.0/expo-modules-core-2.5.0.aar"
+            "expo/modules/expo-modules-autolinking/2.5.0/expo-modules-autolinking-2.5.0.pom"
+            "expo/modules/expo-modules-autolinking/2.5.0/expo-modules-autolinking-2.5.0.aar"
+            "expo/modules/expo-modules-application/2.5.0/expo-modules-application-2.5.0.pom"
+            "expo/modules/expo-modules-application/2.5.0/expo-modules-application-2.5.0.aar"
+            "expo/modules/expo-modules-updates-interface/2.5.0/expo-modules-updates-interface-2.5.0.pom"
+            "expo/modules/expo-modules-updates-interface/2.5.0/expo-modules-updates-interface-2.5.0.aar"
+          )
+          mkdir -p expo-aars
+          for f in "${files[@]}"; do
+            url="$base/$f"
+            outfile="expo-aars/$(basename "$f")"
+            echo "Fetching $url"
+            curl -sfSL "$url" -o "$outfile" || { echo "Failed to fetch $url"; exit 1; }
+          done
+
+      - name: Create package layout
+        run: |
+          mkdir -p package/expo/modules/expo-modules-core/2.5.0
+          mkdir -p package/expo/modules/expo-modules-autolinking/2.5.0
+          mkdir -p package/expo/modules/expo-modules-application/2.5.0
+          mkdir -p package/expo/modules/expo-modules-updates-interface/2.5.0
+          mv expo-aars/expo-modules-core-2.5.0.* package/expo/modules/expo-modules-core/2.5.0/ || true
+          mv expo-aars/expo-modules-autolinking-2.5.0.* package/expo/modules/expo-modules-autolinking/2.5.0/ || true
+          mv expo-aars/expo-modules-application-2.5.0.* package/expo/modules/expo-modules-application/2.5.0/ || true
+          mv expo-aars/expo-modules-updates-interface-2.5.0.* package/expo/modules/expo-modules-updates-interface/2.5.0/ || true
+
+      - name: Zip package
+        run: |
+          (cd package && zip -r ../expo-aars-package.zip .)
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: expo-aars
+          path: expo-aars-package.zip
